@@ -32,4 +32,62 @@ public class RentalService
     private Equipment GetEquipmentOrThrow(string equipmentId) =>
         _equipmentItems.FirstOrDefault(e => e.Id == equipmentId)
         ?? throw new InvalidOperationException($"Nie znaleziono sprzetu {equipmentId}.");
+
+    public Rental RentEquipment(string userId, string equipmentId, int durationDays, DateTime? rentedAt = null)
+    {
+        var user = GetUserOrThrow(userId);
+        var equipment = GetEquipmentOrThrow(equipmentId);
+
+        if (equipment.Status != EquipmentStatus.Available)
+        {
+            throw new InvalidOperationException($"Sprzet {equipment.Id} nie jest dostepny.");
+        }
+
+        var activeRentalsCount = _rentals.Count(r => r.User.Id == userId && r.IsActive);
+
+        if (!_policy.CanBorrow(user, activeRentalsCount))
+        {
+            throw new InvalidOperationException($"Uzytkownik {user.Id} przekroczyl limit wypoяyczen.");
+        }
+
+        var startDate = rentedAt ?? DateTime.Now;
+        var rental = new Rental(user, equipment, startDate, durationDays);
+
+        equipment.MarkAsRented();
+        _rentals.Add(rental);
+
+        return rental;
+    }
+
+    public decimal ReturnEquipment(string rentalId, DateTime? returnedAt = null)
+    {
+        var rental = _rentals.FirstOrDefault(r => r.Id == rentalId && r.IsActive)
+                     ?? throw new InvalidOperationException($"Nie znaleziono aktywnego wypozyczenia {rentalId}.");
+
+        var actualReturnDate = returnedAt ?? DateTime.Now;
+        var penalty = _policy.CalculatePenalty(rental.DueDate, actualReturnDate);
+
+        rental.MarkReturned(actualReturnDate, penalty);
+        rental.Equipment.MarkAsAvailable();
+
+        return penalty;
+    }
+
+    public void MarkEquipmentUnavailable(string equipmentId)
+    {
+        var equipment = GetEquipmentOrThrow(equipmentId);
+
+        if (equipment.Status == EquipmentStatus.Rented)
+        {
+            throw new InvalidOperationException("Nie mozna oznaczyc jako niedostępnego sprzetu, ktory jest aktualnie wypozyczony.");
+        }
+
+        equipment.MarkAsUnavailable();
+    }
+
+    public IEnumerable<Rental> GetActiveRentalsForUser(string userId) =>
+        _rentals.Where(r => r.User.Id == userId && r.IsActive);
+
+    public IEnumerable<Rental> GetOverdueRentals(DateTime referenceDate) =>
+        _rentals.Where(r => r.IsActive && r.DueDate.Date < referenceDate.Date);
 }
