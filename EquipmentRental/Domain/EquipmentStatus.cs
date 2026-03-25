@@ -2,7 +2,7 @@ namespace EquipmentRental.Domain;
 
 public enum EquipmentStatus
 {
-    Aviable,
+    Available,
     Rented,
     Unavailable
 }
